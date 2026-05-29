@@ -1,0 +1,26 @@
+# .clauderisks
+# Sensitive paths Claude should not read, modify, or log contents of.
+# These are enforced by .claude/settings.json deny rules and PreToolUse hooks.
+
+## Secret files — never edit, never log contents
+apps/api/.env
+apps/web/.env.local
+.env
+.env.production
+.env.staging
+
+## Migration history — never edit manually, always use `prisma migrate dev`
+apps/api/prisma/migrations/
+
+## Lock files — never edit manually, always let pnpm manage
+pnpm-lock.yaml
+
+## Generated files — never edit, always regenerate
+apps/api/node_modules/
+apps/web/node_modules/
+node_modules/
+apps/api/dist/
+apps/web/.next/
+
+## Infrastructure — changes affect shared services, confirm with user first
+infrastructure/docker-compose.yml

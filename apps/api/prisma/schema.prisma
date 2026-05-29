@@ -1,0 +1,264 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum ToneStyle {
+  PROFESSIONAL
+  CONVERSATIONAL
+  THOUGHT_LEADER
+  STORYTELLER
+  EDUCATIONAL
+  INSPIRATIONAL
+}
+
+enum PostingGoal {
+  GROW_NETWORK
+  ESTABLISH_EXPERTISE
+  ATTRACT_CLIENTS
+  FIND_JOB
+  BUILD_COMMUNITY
+  SHARE_LEARNINGS
+}
+
+enum PostingFrequency {
+  DAILY
+  THREE_TIMES_WEEK
+  TWICE_WEEK
+  WEEKLY
+}
+
+enum DayOfWeek {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+enum TrendSource {
+  HACKERNEWS
+  GOOGLE_NEWS
+  LINKEDIN
+}
+
+enum DraftStatus {
+  DRAFT
+  REFINED
+  APPROVED
+  PUBLISHED
+  ARCHIVED
+}
+
+enum NotificationType {
+  POSTING_REMINDER
+  NEW_TRENDS_AVAILABLE
+  DRAFT_READY
+  WEEKLY_SUMMARY
+}
+
+enum AiProvider {
+  OPENAI
+  GEMINI
+  CLAUDE
+}
+
+enum ContentType {
+  POST
+  BLOG
+  CAPTION
+  IMAGE
+}
+
+enum ContentSource {
+  AI
+  MANUAL
+}
+
+// ─── User ─────────────────────────────────────────────────────────────────────
+
+model User {
+  id                 String   @id @default(cuid())
+  linkedinId         String   @unique
+  email              String   @unique
+  name               String
+  headline           String?
+  profilePictureUrl  String?
+  linkedinProfileUrl String?
+
+  accessToken    String?
+  refreshToken   String?
+  tokenExpiresAt DateTime?
+
+  onboardingComplete Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  preferences    UserPreferences?
+  drafts         Draft[]
+  notifications  Notification[]
+  savedTrends    SavedTrend[]
+  tokenUsageLogs TokenUsageLog[]
+}
+
+// ─── UserPreferences ──────────────────────────────────────────────────────────
+
+model UserPreferences {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  niche          String
+  niches         String[]
+  goals          PostingGoal[]
+  targetAudience String?
+
+  toneStyle       ToneStyle
+  writingExamples String[]
+  avoidTopics     String[]
+
+  postingFrequency PostingFrequency
+  preferredDays    DayOfWeek[]
+  timezone         String           @default("UTC")
+
+  emailNotifications Boolean @default(true)
+  reminderEnabled    Boolean @default(true)
+  reminderLeadHours  Int     @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ─── Trend ────────────────────────────────────────────────────────────────────
+
+model Trend {
+  id           String      @id @default(cuid())
+  source       TrendSource @default(HACKERNEWS)
+  externalId   String
+  title        String
+  url          String?
+  summary      String?
+  score        Int
+  commentCount Int         @default(0)
+  publishedAt  DateTime
+
+  categories            String[]
+  relevanceMap          Json?
+  professionalRelevance Int      @default(0)
+  intelligence          Json?
+
+  fetchedAt DateTime @default(now())
+  expiresAt DateTime
+
+  savedBy SavedTrend[]
+
+  @@unique([source, externalId])
+  @@index([fetchedAt])
+  @@index([score])
+  @@index([expiresAt])
+}
+
+model SavedTrend {
+  id      String @id @default(cuid())
+  userId  String
+  trendId String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  trend   Trend  @relation(fields: [trendId], references: [id], onDelete: Cascade)
+  savedAt DateTime @default(now())
+
+  @@unique([userId, trendId])
+}
+
+// ─── Draft ────────────────────────────────────────────────────────────────────
+
+model Draft {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  trendId     String?
+  sourceUrl   String?
+  sourceTitle String?
+
+  promptVersion    String @default("v1")
+  generationParams Json?
+
+  finalContent String?
+  status       DraftStatus @default(DRAFT)
+  userNotes    String?
+
+  suggestedPostAt DateTime?
+  postedAt        DateTime?
+
+  contentType  ContentType   @default(POST)
+  source       ContentSource @default(AI)
+  imageUrl     String?
+  title        String?
+
+  variations DraftVariation[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, status])
+  @@index([userId, createdAt])
+}
+
+model DraftVariation {
+  id      String @id @default(cuid())
+  draftId String
+  draft   Draft  @relation(fields: [draftId], references: [id], onDelete: Cascade)
+
+  index    Int
+  label    String
+  content  String
+  selected Boolean @default(false)
+}
+
+// ─── Notification ─────────────────────────────────────────────────────────────
+
+model Notification {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type     NotificationType
+  title    String
+  body     String
+  metadata Json?
+
+  readAt    DateTime?
+  sentAt    DateTime?
+  emailSent Boolean   @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
+}
+
+// ─── TokenUsageLog ────────────────────────────────────────────────────────────
+
+model TokenUsageLog {
+  id               String     @id @default(cuid())
+  userId           String?
+  user             User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  provider         AiProvider
+  model            String
+  promptTokens     Int
+  completionTokens Int
+  totalTokens      Int
+  purpose          String
+  createdAt        DateTime   @default(now())
+
+  @@index([userId, createdAt])
+}

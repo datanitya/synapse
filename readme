@@ -1,0 +1,6 @@
+/project:review                    # review all uncommitted changes
+/project:review apps/api/modules/content/content.service.ts
+/project:test-gen apps/api/modules/drafts/drafts.service.ts
+/project:sync-trends
+/project:gen-post AI developer productivity
+
