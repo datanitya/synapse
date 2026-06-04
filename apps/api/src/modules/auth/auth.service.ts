@@ -57,11 +57,12 @@ export class AuthService {
     return user;
   }
 
-  signJwt(user: { id: string; email: string; onboardingComplete: boolean }) {
+  signJwt(user: { id: string; email: string; onboardingComplete: boolean; role?: string }) {
     const payload = {
       sub: user.id,
       email: user.email,
       onboardingComplete: user.onboardingComplete,
+      role: user.role ?? 'USER',
     };
     return this.jwtService.sign(payload);
   }

@@ -43,4 +43,19 @@ export class UpdatePreferencesDto {
 
   @IsOptional() @IsInt() @Min(0) @Max(24)
   reminderLeadHours?: number;
+
+  @IsOptional() @IsString()
+  hookStyle?: string;
+
+  @IsOptional() @IsString()
+  writingStyle?: string;
+
+  @IsOptional() @IsString()
+  sentenceLength?: string;
+
+  @IsOptional() @IsString()
+  ctaStyle?: string;
+
+  @IsOptional() @IsString()
+  valueProposition?: string;
 }

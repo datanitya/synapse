@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as https from 'https';
 import { v2 as cloudinary } from 'cloudinary';
@@ -38,6 +38,41 @@ export class ImagesService {
   }
 
   private fetchBuffer(url: string): Promise<Buffer> {
+    // Prevent SSRF — only allow HTTPS to public hosts
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      throw new BadRequestException('Invalid URL');
+    }
+    if (parsed.protocol !== 'https:') {
+      throw new BadRequestException('Only HTTPS URLs are allowed');
+    }
+    const privateRanges = [
+      // IPv4 private / link-local
+      /^localhost$/i,
+      /^127\./,
+      /^10\./,
+      /^172\.(1[6-9]|2\d|3[01])\./,
+      /^192\.168\./,
+      /^169\.254\./,
+      // IPv6 loopback, link-local, ULA, and IPv4-mapped equivalents
+      /^\[?::1\]?$/,
+      /^\[?fe80:/i,
+      /^\[?f[cd][0-9a-f]{2}:/i,        // ULA fc00::/7
+      /^\[?::ffff:127\./i,
+      /^\[?::ffff:10\./i,
+      /^\[?::ffff:192\.168\./i,
+      /^\[?::ffff:172\.(1[6-9]|2\d|3[01])\./i,
+      /^\[?::ffff:169\.254\./i,
+    ];
+    if (privateRanges.some((r) => r.test(parsed.hostname))) {
+      throw new BadRequestException('Private IP addresses are not allowed');
+    }
+    // Note: DNS rebinding (public hostname → private IP at resolution time) requires
+    // post-resolution IP validation, which is not implemented here. Mitigated by
+    // the fact that images are only fetched from trusted generation sources (OpenAI CDN).
+
     return new Promise((resolve, reject) => {
       https
         .get(url, (res) => {

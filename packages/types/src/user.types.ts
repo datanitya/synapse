@@ -41,6 +41,8 @@ export interface UserProfile {
   createdAt: string;
 }
 
+export type AiProviderType = 'OPENAI' | 'GEMINI' | 'CLAUDE';
+
 export interface UserPreferences {
   id: string;
   userId: string;
@@ -57,6 +59,16 @@ export interface UserPreferences {
   emailNotifications: boolean;
   reminderEnabled: boolean;
   reminderLeadHours: number;
+  // Per-user AI configuration
+  aiProvider?: AiProviderType | null;
+  aiModel?: string | null;
+  hasOpenaiKey?: boolean;
+  hasGeminiKey?: boolean;
+  hasAnthropicKey?: boolean;
+  // LinkedIn company credentials
+  linkedinClientId?: string | null;
+  hasLinkedinSecret?: boolean;
+  linkedinCompanyId?: string | null;
 }
 
 export interface UserWithPreferences extends UserProfile {

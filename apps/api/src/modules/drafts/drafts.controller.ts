@@ -21,8 +21,13 @@ export class DraftsController {
   constructor(private draftsService: DraftsService) {}
 
   @Get()
-  findAll(@CurrentUser() user: AuthUser, @Query('status') status?: DraftStatus) {
-    return this.draftsService.findAll(user.id, status);
+  findAll(
+    @CurrentUser() user: AuthUser,
+    @Query('status') status?: DraftStatus,
+    @Query('limit') limit?: string,
+  ) {
+    const parsedLimit = limit ? Math.min(Math.max(parseInt(limit, 10) || 50, 1), 100) : undefined;
+    return this.draftsService.findAll(user.id, status, parsedLimit);
   }
 
   @Get(':id')

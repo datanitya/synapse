@@ -272,7 +272,7 @@ Echo/
 | `JWT_SECRET` | Yes | 32-byte hex string for signing JWTs |
 | `JWT_REFRESH_SECRET` | Yes | Different 32-byte hex for refresh tokens |
 | `AUTH_ENCRYPTION_KEY` | Yes | 32-byte hex for encrypting LinkedIn tokens |
-| `OPENAI_API_KEY` | Yes | OpenAI API key (GPT-4o access required) |
+| `OPENAI_API_KEY` | Yes | OpenAI API key (GPT-4o access required) | 
 | `SMTP_HOST` | Yes | SMTP server hostname |
 | `SMTP_PORT` | Yes | SMTP port (587 for TLS, 465 for SSL) |
 | `SMTP_USER` | Yes | SMTP login email |

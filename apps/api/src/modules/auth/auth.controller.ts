@@ -22,6 +22,7 @@ interface AuthUser {
   headline?: string;
   profilePictureUrl?: string;
   onboardingComplete: boolean;
+  role?: string;
 }
 
 @Controller('auth')
@@ -45,6 +46,7 @@ export class AuthController {
       id: user.id,
       email: user.email,
       onboardingComplete: user.onboardingComplete,
+      role: user.role,
     });
 
     res.cookie('synapse_token', token, {

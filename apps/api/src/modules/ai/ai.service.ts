@@ -1,54 +1,122 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { HttpException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import Anthropic from '@anthropic-ai/sdk';
 import { AiProvider } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { CryptoService } from '../../common/crypto/crypto.service';
 
 type Provider = 'openai' | 'gemini' | 'claude';
 type CallResult = { text: string; promptTokens: number; completionTokens: number };
 
+interface ResolvedProvider {
+  provider: Provider;
+  openai?: OpenAI;
+  gemini?: GoogleGenerativeAI;
+  anthropic?: Anthropic;
+  generationModel: string;
+  categorizationModel: string;
+}
+
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
-  private readonly provider: Provider;
 
-  private readonly openai: OpenAI;
-  private readonly openaiCategorizationModel: string;
-
-  private readonly gemini: GoogleGenerativeAI | null = null;
-  private readonly geminiModel: string;
-
-  private readonly anthropic: Anthropic | null = null;
-  private readonly claudeModel: string;
+  // Global (platform-level) clients — used when user has no personal key
+  private readonly globalProvider: Provider;
+  private readonly globalOpenai: OpenAI;
+  private readonly globalOpenaiCategorizationModel: string;
+  private readonly globalGemini: GoogleGenerativeAI | null = null;
+  private readonly globalGeminiModel: string;
+  private readonly globalAnthropic: Anthropic | null = null;
+  private readonly globalClaudeModel: string;
 
   constructor(
     private config: ConfigService,
     private prisma: PrismaService,
+    private cryptoService: CryptoService,
   ) {
-    this.provider = (config.get<string>('ai.provider') ?? 'gemini') as Provider;
+    this.globalProvider = (config.get<string>('ai.provider') ?? 'gemini') as Provider;
 
-    this.openai = new OpenAI({ apiKey: config.get('openai.apiKey') });
-    this.openaiCategorizationModel = config.get('openai.modelCategorization') ?? 'gpt-4o-mini';
+    this.globalOpenai = new OpenAI({ apiKey: config.get('openai.apiKey') });
+    this.globalOpenaiCategorizationModel = config.get('openai.modelCategorization') ?? 'gpt-4o-mini';
 
     const geminiKey = config.get<string>('gemini.apiKey');
     if (geminiKey) {
-      this.gemini = new GoogleGenerativeAI(geminiKey);
-      this.geminiModel = config.get('gemini.model') ?? 'gemini-2.0-flash';
+      this.globalGemini = new GoogleGenerativeAI(geminiKey);
+      this.globalGeminiModel = config.get('gemini.model') ?? 'gemini-2.0-flash';
     } else {
-      this.geminiModel = 'gemini-2.0-flash';
+      this.globalGeminiModel = 'gemini-2.0-flash';
     }
 
     const anthropicKey = config.get<string>('anthropic.apiKey');
     if (anthropicKey) {
-      this.anthropic = new Anthropic({ apiKey: anthropicKey });
-      this.claudeModel = config.get('anthropic.model') ?? 'claude-sonnet-4-6';
+      this.globalAnthropic = new Anthropic({ apiKey: anthropicKey });
+      this.globalClaudeModel = config.get('anthropic.model') ?? 'claude-sonnet-4-6';
     } else {
-      this.claudeModel = 'claude-sonnet-4-6';
+      this.globalClaudeModel = 'claude-sonnet-4-6';
     }
 
-    this.logger.log(`AI provider: ${this.provider}`);
+    this.logger.log(`AI global provider: ${this.globalProvider}`);
+  }
+
+  private async resolveProvider(userId?: string): Promise<ResolvedProvider> {
+    if (userId) {
+      const prefs = await this.prisma.userPreferences.findUnique({ where: { userId } });
+      const p = prefs as unknown as Record<string, string | null> | null;
+
+      if (p?.aiProvider === 'OPENAI' && p?.openaiApiKey) {
+        const key = this.decrypt(p.openaiApiKey);
+        return {
+          provider: 'openai',
+          openai: new OpenAI({ apiKey: key }),
+          generationModel: p.aiModel ?? (this.config.get('openai.modelGeneration') ?? 'gpt-4o-mini'),
+          categorizationModel: this.globalOpenaiCategorizationModel,
+        };
+      }
+      if (p?.aiProvider === 'GEMINI' && p?.geminiApiKey) {
+        const key = this.decrypt(p.geminiApiKey);
+        return {
+          provider: 'gemini',
+          gemini: new GoogleGenerativeAI(key),
+          generationModel: p.aiModel ?? this.globalGeminiModel,
+          categorizationModel: p.aiModel ?? this.globalGeminiModel,
+        };
+      }
+      if (p?.aiProvider === 'CLAUDE' && p?.anthropicApiKey) {
+        const key = this.decrypt(p.anthropicApiKey);
+        return {
+          provider: 'claude',
+          anthropic: new Anthropic({ apiKey: key }),
+          generationModel: p.aiModel ?? this.globalClaudeModel,
+          categorizationModel: p.aiModel ?? this.globalClaudeModel,
+        };
+      }
+    }
+
+    // Fall back to global platform config — select model names based on provider
+    const provider = this.globalProvider;
+    let generationModel: string;
+    let categorizationModel: string;
+    if (provider === 'gemini') {
+      generationModel = this.globalGeminiModel;
+      categorizationModel = this.globalGeminiModel;
+    } else if (provider === 'claude') {
+      generationModel = this.globalClaudeModel;
+      categorizationModel = this.globalClaudeModel;
+    } else {
+      generationModel = this.config.get('openai.modelGeneration') ?? 'gpt-4o-mini';
+      categorizationModel = this.globalOpenaiCategorizationModel;
+    }
+    return {
+      provider,
+      openai: this.globalOpenai,
+      gemini: this.globalGemini ?? undefined,
+      anthropic: this.globalAnthropic ?? undefined,
+      generationModel,
+      categorizationModel,
+    };
   }
 
   async chat(
@@ -59,24 +127,27 @@ export class AiService {
     purpose = 'generation',
     maxTokens?: number,
   ): Promise<string> {
+    await this.enforceTokenLimit(userId);
+    const resolved = await this.resolveProvider(userId);
     let result: CallResult;
     let aiProvider: AiProvider;
     let modelName: string;
 
-    if (this.provider === 'claude' && this.anthropic) {
-      result = await this.chatWithClaude(systemPrompt, userPrompt, maxTokens);
+    if (resolved.provider === 'claude' && resolved.anthropic) {
+      const modelId = model === 'categorization' ? resolved.categorizationModel : resolved.generationModel;
+      result = await this.chatWithClaude(systemPrompt, userPrompt, maxTokens, resolved.anthropic, modelId);
       aiProvider = AiProvider.CLAUDE;
-      modelName = this.claudeModel;
-    } else if (this.provider === 'gemini' && this.gemini) {
-      result = await this.chatWithGemini(systemPrompt, userPrompt, maxTokens);
+      modelName = modelId;
+    } else if (resolved.provider === 'gemini' && resolved.gemini) {
+      const modelId = model === 'categorization' ? resolved.categorizationModel : resolved.generationModel;
+      result = await this.chatWithGemini(systemPrompt, userPrompt, maxTokens, resolved.gemini, modelId);
       aiProvider = AiProvider.GEMINI;
-      modelName = this.geminiModel;
+      modelName = modelId;
     } else {
-      result = await this.chatWithOpenAI(systemPrompt, userPrompt, model, maxTokens);
+      const openaiModel = model === 'categorization' ? resolved.categorizationModel : resolved.generationModel;
+      result = await this.chatWithOpenAI(systemPrompt, userPrompt, openaiModel, maxTokens, resolved.openai ?? this.globalOpenai, model);
       aiProvider = AiProvider.OPENAI;
-      modelName = model === 'categorization'
-        ? this.openaiCategorizationModel
-        : (this.config.get('openai.modelGeneration') ?? 'gpt-4o-mini');
+      modelName = openaiModel;
     }
 
     this.logUsage(userId, aiProvider, modelName, result.promptTokens, result.completionTokens, purpose)
@@ -107,7 +178,8 @@ export class AiService {
   }
 
   async generateImage(prompt: string, userId?: string): Promise<Buffer> {
-    const response = await this.openai.images.generate({
+    await this.enforceTokenLimit(userId);
+    const response = await this.globalOpenai.images.generate({
       model: 'gpt-image-1',
       prompt,
       n: 1,
@@ -122,11 +194,17 @@ export class AiService {
     return Buffer.from(b64, 'base64');
   }
 
-  private async chatWithClaude(systemPrompt: string, userPrompt: string, maxTokens = 2000): Promise<CallResult> {
+  private async chatWithClaude(
+    systemPrompt: string,
+    userPrompt: string,
+    maxTokens = 2000,
+    client: Anthropic = this.globalAnthropic!,
+    model: string = this.globalClaudeModel,
+  ): Promise<CallResult> {
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        const message = await this.anthropic!.messages.create({
-          model: this.claudeModel,
+        const message = await client.messages.create({
+          model,
           max_tokens: maxTokens,
           system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
           messages: [{ role: 'user', content: userPrompt }],
@@ -152,9 +230,15 @@ export class AiService {
     throw new Error('Claude request failed after all retries');
   }
 
-  private async chatWithGemini(systemPrompt: string, userPrompt: string, maxTokens?: number): Promise<CallResult> {
-    const generativeModel = this.gemini!.getGenerativeModel({
-      model: this.geminiModel,
+  private async chatWithGemini(
+    systemPrompt: string,
+    userPrompt: string,
+    maxTokens?: number,
+    client: GoogleGenerativeAI = this.globalGemini!,
+    model: string = this.globalGeminiModel,
+  ): Promise<CallResult> {
+    const generativeModel = client.getGenerativeModel({
+      model,
       generationConfig: { maxOutputTokens: maxTokens ?? 1800 },
     });
     const fullPrompt = `${systemPrompt}\n\n---\n\n${userPrompt}`;
@@ -186,23 +270,23 @@ export class AiService {
   private async chatWithOpenAI(
     systemPrompt: string,
     userPrompt: string,
-    model: 'generation' | 'categorization',
+    modelId: string,
     maxTokens?: number,
+    client: OpenAI = this.globalOpenai,
+    modelHint: 'generation' | 'categorization' = 'generation',
   ): Promise<CallResult> {
-    const modelId = model === 'generation'
-      ? (this.config.get('openai.modelGeneration') ?? 'gpt-4o-mini')
-      : this.openaiCategorizationModel;
-    const tokens = maxTokens ?? (model === 'generation' ? 2000 : 4000);
+    const tokens = maxTokens ?? 2000;
+    const temperature = modelHint === 'categorization' ? 0.2 : 0.8;
 
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        const completion = await this.openai.chat.completions.create({
+        const completion = await client.chat.completions.create({
           model: modelId,
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt },
           ],
-          temperature: model === 'generation' ? 0.8 : 0.2,
+          temperature,
           max_tokens: tokens,
         });
         return {
@@ -224,4 +308,31 @@ export class AiService {
     }
     throw new Error('OpenAI request failed after all retries');
   }
+
+  private async enforceTokenLimit(userId?: string): Promise<void> {
+    if (!userId) return;
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { plan: true },
+    });
+    const plan = (user as unknown as { plan?: { monthlyTokenLimit: number } | null })?.plan;
+    const limit = plan?.monthlyTokenLimit ?? 50_000; // matches FREE plan seed; 0 = unlimited
+    if (limit === 0) return;
+
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const { _sum } = await this.prisma.tokenUsageLog.aggregate({
+      where: { userId, createdAt: { gte: monthStart } },
+      _sum: { totalTokens: true },
+    });
+    const used = _sum.totalTokens ?? 0;
+    if (used >= limit) {
+      throw new HttpException(
+        `Monthly token limit reached (${limit.toLocaleString()} tokens). Upgrade your plan to continue.`,
+        429,
+      );
+    }
+  }
+
+  private decrypt(encrypted: string): string { return this.cryptoService.decrypt(encrypted); }
 }

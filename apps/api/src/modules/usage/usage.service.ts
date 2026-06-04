@@ -48,15 +48,14 @@ function buildMonthStats(rows: {
 export class UsageService {
   constructor(private prisma: PrismaService) {}
 
-  async getStats(_userId: string) {
+  async getStats(userId: string) {
     const now = new Date();
     const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
 
-    // Query ALL token usage (user-generated + system background calls)
     const currentRows = await this.prisma.tokenUsageLog.groupBy({
       by: ['provider', 'model', 'purpose'],
-      where: { createdAt: { gte: currentMonthStart, lt: nextMonthStart } },
+      where: { userId, createdAt: { gte: currentMonthStart, lt: nextMonthStart } },
       _sum: { totalTokens: true, promptTokens: true, completionTokens: true },
     });
 
@@ -69,7 +68,7 @@ export class UsageService {
 
       const rows = await this.prisma.tokenUsageLog.groupBy({
         by: ['provider', 'model', 'purpose'],
-        where: { createdAt: { gte: monthStart, lt: monthEnd } },
+        where: { userId, createdAt: { gte: monthStart, lt: monthEnd } },
         _sum: { totalTokens: true, promptTokens: true, completionTokens: true },
       });
 

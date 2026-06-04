@@ -35,7 +35,7 @@ export class LinkedInStrategy extends PassportStrategy(Strategy, 'linkedin') {
           return done(new Error('Failed to fetch user profile'));
         }
         return res.json().then((json: Record<string, string>) => {
-          this.logger.debug('LinkedIn userinfo: ' + JSON.stringify(json));
+          this.logger.debug('LinkedIn userinfo received for sub: ' + json['sub']);
           done(null, {
             id: json['sub'],
             displayName: json['name'] ?? `${json['given_name'] ?? ''} ${json['family_name'] ?? ''}`.trim(),
