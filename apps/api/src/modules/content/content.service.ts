@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
 import { ImagesService } from '../images/images.service';
+import { BrandMemoryService } from '../brand-memory/brand-memory.service';
 import { ToneStyle, PostingGoal, UserPreferences, ContentType } from '@prisma/client';
 
 const TONE_DESCRIPTIONS: Record<ToneStyle, string> = {
@@ -48,6 +49,17 @@ const ImageSchema = z.object({
   caption: z.string(),
 });
 
+function buildVoiceParams(prefs: UserPreferences): string {
+  const p = prefs as unknown as Record<string, string | undefined>;
+  const lines: string[] = [];
+  if (p.hookStyle) lines.push(`- Hook style: ${p.hookStyle}`);
+  if (p.writingStyle) lines.push(`- Writing style: ${p.writingStyle}`);
+  if (p.sentenceLength) lines.push(`- Sentence length: ${p.sentenceLength}`);
+  if (p.ctaStyle) lines.push(`- CTA style: ${p.ctaStyle}`);
+  if (p.valueProposition) lines.push(`- Value proposition: ${p.valueProposition}`);
+  return lines.length ? '\nVOICE PARAMETERS:\n' + lines.join('\n') + '\n' : '';
+}
+
 export interface GeneratePostOptions {
   topic: string;
   trendId?: string;
@@ -61,6 +73,7 @@ export class ContentService {
     private prisma: PrismaService,
     private ai: AiService,
     private images: ImagesService,
+    private brandMemory: BrandMemoryService,
   ) {}
 
   async generatePost(userId: string, options: GeneratePostOptions) {
@@ -70,35 +83,37 @@ export class ContentService {
     });
 
     const prefs = user?.preferences;
+
+    const trend = options.trendId
+      ? await this.prisma.trend.findUnique({ where: { id: options.trendId } })
+      : null;
+
     let trendContext = '';
+    if (trend) {
+      const intel = (trend as Record<string, unknown>).intelligence as {
+        trendScore?: number; opportunityScore?: number;
+        whyItMatters?: string; suggestedAngle?: string;
+        suggestedHook?: string; suggestedTone?: string; suggestedAudience?: string;
+      } | null;
 
-    if (options.trendId) {
-      const trend = await this.prisma.trend.findUnique({ where: { id: options.trendId } });
-      if (trend) {
-        const intel = (trend as Record<string, unknown>).intelligence as {
-          trendScore?: number; opportunityScore?: number;
-          whyItMatters?: string; suggestedAngle?: string;
-          suggestedHook?: string; suggestedTone?: string; suggestedAudience?: string;
-        } | null;
+      trendContext = `\nSOURCE TREND:\n- Title: ${trend.title}\n- Study note: ${trend.summary ?? ''}\n`;
 
-        trendContext = `\nSOURCE TREND:\n- Title: ${trend.title}\n- Study note: ${trend.summary ?? ''}\n`;
-
-        if (intel) {
-          trendContext += `\nTREND INTELLIGENCE (use to inform the post — do NOT quote these verbatim):\n`;
-          if (intel.trendScore) trendContext += `- Trend momentum: ${intel.trendScore}/10\n`;
-          if (intel.opportunityScore) trendContext += `- Opportunity score: ${intel.opportunityScore}/10\n`;
-          if (intel.whyItMatters) trendContext += `- Why it matters: ${intel.whyItMatters}\n`;
-          if (intel.suggestedAngle) trendContext += `- Recommended angle: ${intel.suggestedAngle}\n`;
-          if (intel.suggestedHook) trendContext += `- Suggested hook: ${intel.suggestedHook}\n`;
-          if (intel.suggestedTone) trendContext += `- Recommended tone: ${intel.suggestedTone}\n`;
-          if (intel.suggestedAudience) trendContext += `- Target audience: ${intel.suggestedAudience}\n`;
-        } else if (trend.score > 0) {
-          trendContext += `- Trending: ${trend.score} upvotes with ${trend.commentCount} comments\n`;
-        }
+      if (intel) {
+        trendContext += `\nTREND INTELLIGENCE (use to inform the post — do NOT quote these verbatim):\n`;
+        if (intel.trendScore) trendContext += `- Trend momentum: ${intel.trendScore}/10\n`;
+        if (intel.opportunityScore) trendContext += `- Opportunity score: ${intel.opportunityScore}/10\n`;
+        if (intel.whyItMatters) trendContext += `- Why it matters: ${intel.whyItMatters}\n`;
+        if (intel.suggestedAngle) trendContext += `- Recommended angle: ${intel.suggestedAngle}\n`;
+        if (intel.suggestedHook) trendContext += `- Suggested hook: ${intel.suggestedHook}\n`;
+        if (intel.suggestedTone) trendContext += `- Recommended tone: ${intel.suggestedTone}\n`;
+        if (intel.suggestedAudience) trendContext += `- Target audience: ${intel.suggestedAudience}\n`;
+      } else if (trend.score > 0) {
+        trendContext += `- Trending: ${trend.score} upvotes with ${trend.commentCount} comments\n`;
       }
     }
 
-    const systemPrompt = this.buildSystemPrompt(prefs);
+    const brandDna = await this.brandMemory.getDna(userId);
+    const systemPrompt = this.buildSystemPrompt(prefs, brandDna);
     const userPrompt = this.buildUserPrompt(options.topic, trendContext, options.customContext);
 
     const raw = await this.ai.chat(systemPrompt, userPrompt, 'generation', userId, 'generation');
@@ -112,10 +127,6 @@ export class ContentService {
       toneStyle: prefs?.toneStyle,
     };
 
-    const trend = options.trendId
-      ? await this.prisma.trend.findUnique({ where: { id: options.trendId } })
-      : null;
-
     const draft = await this.prisma.draft.create({
       data: {
         userId,
@@ -124,6 +135,7 @@ export class ContentService {
         sourceTitle: trend?.title,
         generationParams,
         contentType: ContentType.POST,
+        suggestedPostAt: this.computeNextSlot(prefs?.timezone ?? 'UTC'),
         variations: {
           create: parsed.variations.map((v) => ({
             index: v.index,
@@ -180,6 +192,7 @@ export class ContentService {
         contentType: ContentType.BLOG,
         title: parsed.title,
         finalContent,
+        suggestedPostAt: this.computeNextSlot(prefs?.timezone ?? 'UTC'),
         variations: {
           create: [{ index: 0, label: 'Article', content: finalContent, selected: true }],
         },
@@ -190,7 +203,10 @@ export class ContentService {
     return draft;
   }
 
-  private buildSystemPrompt(prefs: UserPreferences | null | undefined): string {
+  private buildSystemPrompt(
+    prefs: UserPreferences | null | undefined,
+    brandDna?: { hookStyle?: string | null; tone?: string | null; paragraphLength?: string | null; emojiUsage?: string | null; preferredTopics?: string[]; avgPostLength?: number | null; samplesAnalyzed?: number } | null,
+  ): string {
     const profileSection = prefs
       ? `CREATOR PROFILE:
 - Niches: ${prefs.niches.join(', ')}
@@ -198,12 +214,23 @@ export class ContentService {
 - Writing tone: ${TONE_DESCRIPTIONS[prefs.toneStyle]}
 - Topics to avoid: ${prefs.avoidTopics.join(', ') || 'none'}
 - Target audience: ${prefs.targetAudience ?? 'LinkedIn professionals'}
-${
+${buildVoiceParams(prefs)}${
   prefs.writingExamples.length > 0
     ? `\nVOICE EXAMPLES (posts this creator has written):\n${prefs.writingExamples.map((ex, i) => `Example ${i + 1}:\n${ex.slice(0, 400)}`).join('\n\n')}`
     : ''
 }`
       : 'CREATOR PROFILE: Professional LinkedIn content creator.';
+
+    const dnaSection =
+      brandDna && (brandDna.samplesAnalyzed ?? 0) >= 3
+        ? `\nLEARNED BRAND DNA (inferred from ${brandDna.samplesAnalyzed} past edits — follow this closely):
+${brandDna.hookStyle ? `- Hook style: ${brandDna.hookStyle}` : ''}
+${brandDna.tone ? `- Tone: ${brandDna.tone}` : ''}
+${brandDna.paragraphLength ? `- Paragraph length: ${brandDna.paragraphLength}` : ''}
+${brandDna.emojiUsage ? `- Emoji usage: ${brandDna.emojiUsage}` : ''}
+${brandDna.preferredTopics?.length ? `- Preferred topics: ${brandDna.preferredTopics.join(', ')}` : ''}
+${brandDna.avgPostLength ? `- Typical post length: ~${brandDna.avgPostLength} words` : ''}`
+        : '';
 
     return `You are a ghostwriter specializing in LinkedIn content for professionals. Your job is to write posts that sound authentically human, match the creator's voice exactly, and drive meaningful engagement.
 
@@ -218,7 +245,7 @@ LinkedIn post rules you ALWAYS follow:
 - Never start with "I" as the first word
 - Sound like a smart human, not an AI
 
-${profileSection}`;
+${profileSection}${dnaSection}`;
   }
 
   private buildUserPrompt(topic: string, trendContext: string, customContext?: string): string {
@@ -267,6 +294,7 @@ Return ONLY valid JSON (no markdown):
         contentType: ContentType.IMAGE,
         imageUrl,
         finalContent: parsed.caption,
+        suggestedPostAt: this.computeNextSlot(prefs?.timezone ?? 'UTC'),
         variations: {
           create: [{ index: 0, label: 'Caption', content: parsed.caption, selected: true }],
         },
@@ -343,5 +371,55 @@ The first section must have heading: null. All other sections must have a headin
     const cleaned = raw.replace(/```json\n?|\n?```/g, '').trim();
     const parsed = BlogSchema.parse(JSON.parse(cleaned));
     return parsed;
+  }
+
+  // Returns the next Tue/Wed/Thu at 8am, noon, or 5pm in the user's local timezone.
+  private computeNextSlot(timezone: string): Date {
+    const OPTIMAL_DAYS = new Set([2, 3, 4]); // Tue=2, Wed=3, Thu=4
+    const OPTIMAL_HOURS = [8, 12, 17];
+
+    const now = new Date();
+    const cutoff = new Date(now.getTime() + 60 * 60 * 1000);
+
+    // UTC offset in ms for the target timezone at a given instant (positive = ahead of UTC).
+    const getOffsetMs = (date: Date): number => {
+      const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: timezone,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        hour12: false,
+      }).formatToParts(date).reduce<Record<string, string>>((acc, p) => {
+        if (p.type !== 'literal') acc[p.type] = p.value;
+        return acc;
+      }, {});
+      const localAsUtcMs = Date.UTC(
+        +parts.year, +parts.month - 1, +parts.day,
+        +parts.hour % 24, +parts.minute, +parts.second,
+      );
+      return localAsUtcMs - date.getTime();
+    };
+
+    for (let d = 0; d <= 14; d++) {
+      const probe = new Date(now.getTime() + d * 24 * 60 * 60 * 1000);
+      // Recompute offset per day so DST transitions are handled correctly
+      const offsetMs = getOffsetMs(probe);
+      const localProbe = new Date(probe.getTime() + offsetMs);
+      const dow = localProbe.getUTCDay();
+      if (!OPTIMAL_DAYS.has(dow)) continue;
+
+      // UTC ms of local midnight on this day
+      const localMidnightUtcMs =
+        Date.UTC(localProbe.getUTCFullYear(), localProbe.getUTCMonth(), localProbe.getUTCDate()) - offsetMs;
+
+      for (const hour of OPTIMAL_HOURS) {
+        const candidate = new Date(localMidnightUtcMs + hour * 3600 * 1000);
+        if (candidate > cutoff) return candidate;
+      }
+    }
+
+    // Fallback: 4 days from now at noon UTC
+    const fallback = new Date(now.getTime() + 4 * 24 * 60 * 60 * 1000);
+    fallback.setUTCHours(12, 0, 0, 0);
+    return fallback;
   }
 }

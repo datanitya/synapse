@@ -6,7 +6,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 export class DraftsService {
   constructor(private prisma: PrismaService) {}
 
-  async findAll(userId: string, status?: DraftStatus) {
+  async findAll(userId: string, status?: DraftStatus, limit?: number) {
     return this.prisma.draft.findMany({
       where: {
         userId,
@@ -15,6 +15,7 @@ export class DraftsService {
       },
       include: { variations: { orderBy: { index: 'asc' } } },
       orderBy: { updatedAt: 'desc' },
+      take: limit,
     });
   }
 
@@ -69,7 +70,23 @@ export class DraftsService {
       title?: string;
     },
   ) {
-    await this.findOne(userId, id);
+    const existing = await this.findOne(userId, id);
+
+    // Track edits for Brand Memory — only when user changes finalContent on an AI draft
+    if (
+      data.finalContent &&
+      data.finalContent !== existing.finalContent &&
+      existing.source === ContentSource.AI
+    ) {
+      const selectedVariation = existing.variations.find((v) => v.selected);
+      const original = selectedVariation?.content ?? existing.finalContent ?? '';
+      if (original && original !== data.finalContent) {
+        await this.prisma.contentEdit.create({
+          data: { userId, draftId: id, original, edited: data.finalContent },
+        });
+      }
+    }
+
     return this.prisma.draft.update({
       where: { id },
       data: {

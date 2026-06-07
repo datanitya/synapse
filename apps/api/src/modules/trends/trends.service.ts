@@ -340,20 +340,27 @@ export class TrendsService {
     });
     const savedIds = new Set(savedTrends.map((s) => s.trendId));
 
-    const scored = trends
-      .map((trend) => ({
-        ...trend,
-        relevanceScore: this.computeRelevanceScore(trend.categories, trend.score, userNiches),
-        isSaved: savedIds.has(trend.id),
-      }))
-      .sort((a, b) => b.relevanceScore - a.relevanceScore);
+    // hasNext is determined from the raw limit+1 fetch BEFORE any in-memory filtering,
+    // so the cursor correctly reflects whether more DB records exist.
+    const hasNext = trends.length > limit;
+    const rawPage = trends.slice(0, limit);
 
-    const hasNext = scored.length > limit;
-    const page = scored.slice(0, limit);
+    const allScored = rawPage.map((trend) => ({
+      ...trend,
+      relevanceScore: this.computeRelevanceScore(trend.categories, trend.score, userNiches),
+      isSaved: savedIds.has(trend.id),
+    }));
+
+    // Filter to user-relevant trends; fall back to all if nothing qualifies
+    const filtered = userNiches.length > 0
+      ? allScored.filter((t) => t.relevanceScore >= 0.3)
+      : allScored;
+    const page = (filtered.length > 0 ? filtered : allScored)
+      .sort((a, b) => b.relevanceScore - a.relevanceScore);
 
     return {
       trends: page,
-      nextCursor: hasNext ? page[page.length - 1]?.id : undefined,
+      nextCursor: hasNext ? rawPage[rawPage.length - 1]?.id : undefined,
       total: page.length,
     };
   }

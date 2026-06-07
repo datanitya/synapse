@@ -71,6 +71,17 @@ enum AiProvider {
   CLAUDE
 }
 
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum PlanTier {
+  FREE
+  PRO
+  BUSINESS
+}
+
 enum ContentType {
   POST
   BLOG
@@ -98,7 +109,16 @@ model User {
   refreshToken   String?
   tokenExpiresAt DateTime?
 
-  onboardingComplete Boolean @default(false)
+  onboardingComplete Boolean  @default(false)
+  role               UserRole @default(USER)
+
+  planId    String?
+  plan      Plan?     @relation(fields: [planId], references: [id])
+  planSince DateTime?
+
+  razorpayCustomerId     String?
+  razorpaySubscriptionId String?
+  subscriptionStatus     String? // "created" | "authenticated" | "active" | "past_due" | "cancelled"
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -108,6 +128,25 @@ model User {
   notifications  Notification[]
   savedTrends    SavedTrend[]
   tokenUsageLogs TokenUsageLog[]
+  brandDna       BrandDna?
+  contentEdits   ContentEdit[]
+}
+
+// ─── Plan ─────────────────────────────────────────────────────────────────────
+
+model Plan {
+  id                String   @id @default(cuid())
+  tier              PlanTier @unique
+  displayName       String
+  monthlyTokenLimit Int
+  priceInr          Float
+  currency          String   @default("INR")
+  features          Json
+  isActive          Boolean  @default(true)
+  razorpayPlanId    String?  // Razorpay Plan ID — set in admin after creating plan in Razorpay dashboard
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  users             User[]
 }
 
 // ─── UserPreferences ──────────────────────────────────────────────────────────
@@ -133,6 +172,25 @@ model UserPreferences {
   emailNotifications Boolean @default(true)
   reminderEnabled    Boolean @default(true)
   reminderLeadHours  Int     @default(1)
+
+  // Per-user AI configuration
+  aiProvider      AiProvider? // null = use platform global fallback
+  aiModel         String?     // e.g. "gemini-2.0-flash", "gpt-4o-mini"
+  openaiApiKey    String?     // encrypted
+  geminiApiKey    String?     // encrypted
+  anthropicApiKey String?     // encrypted
+
+  // LinkedIn company app credentials (for future company-page posting)
+  linkedinClientId     String? // plaintext (public)
+  linkedinClientSecret String? // encrypted
+  linkedinCompanyId    String? // company page URN or numeric ID
+
+  // Advanced brand voice
+  hookStyle        String? // "contrarian"|"personal-story"|"data-driven"|"question"|"listicle"
+  writingStyle     String? // "punchy"|"detailed"|"balanced"
+  sentenceLength   String? // "short"|"medium"|"long"
+  ctaStyle         String? // "question"|"reflection"|"action"|"none"
+  valueProposition String? // "I help X do Y so they can Z"
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -261,4 +319,65 @@ model TokenUsageLog {
   createdAt        DateTime   @default(now())
 
   @@index([userId, createdAt])
+}
+
+// ─── WaitlistEntry ────────────────────────────────────────────────────────────
+
+model WaitlistEntry {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  source    String?
+  createdAt DateTime @default(now())
+}
+
+// ─── Brand Memory ─────────────────────────────────────────────────────────────
+
+model BrandDna {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hookStyle       String?
+  tone            String?
+  paragraphLength String?
+  emojiUsage      String?
+  preferredTopics String[]
+  avgPostLength   Int?
+  samplesAnalyzed Int      @default(0)
+  rawDna          Json?
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
+}
+
+model ContentEdit {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  draftId   String
+  original  String
+  edited    String
+  editedAt  DateTime @default(now())
+
+  @@index([userId, editedAt])
+}
+
+// ─── Payment Logs ─────────────────────────────────────────────────────────────
+
+model PaymentLog {
+  id                     String   @id @default(cuid())
+  razorpayPaymentId      String?  @unique
+  razorpaySubscriptionId String?
+  userId                 String?
+  userEmail              String?
+  userName               String?
+  amountPaise            Int      @default(0)  // stored in paise (÷100 = ₹)
+  currency               String   @default("INR")
+  status                 String   // "captured" | "failed" | "refunded"
+  method                 String?  // "upi" | "card" | "netbanking" | "wallet"
+  planDisplayName        String?
+  event                  String   // the Razorpay event that triggered this record
+  createdAt              DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
 }

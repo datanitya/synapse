@@ -2,11 +2,11 @@ import { Controller, Get, Post, Body, UseGuards, Res } from '@nestjs/common';
 import { Response } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AuthService } from '../auth/auth.service';
-
-interface AuthUser { id: string; email: string }
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { OnboardingService } from './onboarding.service';
 import { CompleteOnboardingDto } from './dto/complete-onboarding.dto';
+
+interface AuthUser { id: string; email: string }
 
 @Controller('onboarding')
 @UseGuards(JwtAuthGuard)
@@ -32,6 +32,7 @@ export class OnboardingController {
       id: updatedUser.id,
       email: updatedUser.email,
       onboardingComplete: true,
+      role: (updatedUser as unknown as { role?: string }).role ?? 'USER',
     });
     res.cookie('synapse_token', token, {
       httpOnly: true,

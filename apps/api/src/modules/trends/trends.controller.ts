@@ -24,11 +24,8 @@ export class TrendsController {
     @Query('cursor') cursor?: string,
     @Query('limit') limit?: string,
   ) {
-    return this.trendsService.getTrendsForUser(
-      user.id,
-      cursor,
-      limit ? parseInt(limit, 10) : 20,
-    );
+    const parsedLimit = limit ? Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100) : 20;
+    return this.trendsService.getTrendsForUser(user.id, cursor, parsedLimit);
   }
 
   @Get('saved')
