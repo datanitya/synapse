@@ -51,6 +51,8 @@ export class LinkedInStrategy extends PassportStrategy(Strategy, 'linkedin') {
       });
   }
 
+  // passport-linkedin-oauth2 calls verify with (accessToken, refreshToken, profile) —
+  // no params argument. Base passport-oauth2 has 5 args but this strategy uses 3.
   async validate(
     accessToken: string,
     refreshToken: string,
@@ -69,6 +71,9 @@ export class LinkedInStrategy extends PassportStrategy(Strategy, 'linkedin') {
       throw new Error('Could not extract LinkedIn user ID from profile');
     }
 
+    // LinkedIn access tokens are valid for ~60 days
+    const tokenExpiresAt = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000);
+
     return this.authService.validateLinkedInUser({
       linkedinId,
       name,
@@ -76,6 +81,7 @@ export class LinkedInStrategy extends PassportStrategy(Strategy, 'linkedin') {
       profilePictureUrl,
       accessToken,
       refreshToken,
+      tokenExpiresAt,
     });
   }
 }

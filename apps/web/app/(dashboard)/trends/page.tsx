@@ -134,14 +134,41 @@ export default function TrendsPage() {
             return (
               <div
                 key={trend.id}
-                className="bg-slate-900 rounded-xl border border-slate-800 hover:border-slate-700/80 transition-all duration-150"
+                className={`bg-slate-900 rounded-xl border transition-all duration-150 ${
+                  intel && intel.opportunityScore >= 7
+                    ? 'border-emerald-800/60 hover:border-emerald-700/80'
+                    : intel && intel.opportunityScore >= 4
+                    ? 'border-slate-700/80 hover:border-slate-600/80'
+                    : 'border-slate-800 hover:border-slate-700/80'
+                }`}
               >
                 <div className="p-5">
                   <div className="flex items-start gap-4">
+                    {/* Opportunity Score badge — primary differentiator */}
+                    {intel && (
+                      <div className={`shrink-0 flex flex-col items-center justify-center w-11 h-11 rounded-xl font-bold text-base tabular-nums border ${
+                        intel.opportunityScore >= 7
+                          ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/25'
+                          : intel.opportunityScore >= 4
+                          ? 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'
+                          : 'bg-slate-800/60 text-slate-500 border-slate-700/40'
+                      }`}>
+                        {intel.opportunityScore}
+                        <span className="text-[8px] font-semibold opacity-60 leading-none mt-0.5">OPP</span>
+                      </div>
+                    )}
+
                     <div className="flex-1 min-w-0">
                       <h3 className="text-slate-100 font-medium leading-snug">{trend.title}</h3>
 
-                      {trend.summary && (
+                      {/* Suggested angle — always visible, no expansion needed */}
+                      {intel?.suggestedAngle && (
+                        <p className="text-blue-400/80 text-xs mt-1.5 leading-relaxed font-medium">
+                          → {intel.suggestedAngle}
+                        </p>
+                      )}
+
+                      {trend.summary && !intel?.suggestedAngle && (
                         <p className="text-slate-500 text-sm mt-1.5 line-clamp-2 leading-relaxed">{trend.summary}</p>
                       )}
 
@@ -163,7 +190,6 @@ export default function TrendsPage() {
                           <>
                             <ScorePill label="Trend" value={intel.trendScore} type="trend" />
                             <ScorePill label="Sat." value={intel.saturationScore} type="saturation" />
-                            <ScorePill label="Opp." value={intel.opportunityScore} type="opportunity" />
                           </>
                         )}
 

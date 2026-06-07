@@ -1,0 +1,81 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: synapse_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: synapse
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+      POSTGRES_DB: synapse_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U synapse -d synapse_db']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [synapse]
+
+  redis:
+    image: redis:7-alpine
+    container_name: synapse_redis
+    restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks: [synapse]
+
+  api:
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+    container_name: synapse_api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://synapse:${POSTGRES_PASSWORD}@postgres:5432/synapse_db
+      REDIS_URL: redis://redis:6379
+      API_PORT: 3001
+      # All other env vars from .env.production
+    env_file: ../.env.production
+    ports:
+      - '3001:3001'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [synapse]
+
+  web:
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+      args:
+        DOCKER_BUILD: 'true'
+    container_name: synapse_web
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DOCKER_BUILD: 'true'
+    env_file: ../.env.production
+    ports:
+      - '3000:3000'
+    depends_on:
+      - api
+    networks: [synapse]
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  synapse:
+    driver: bridge

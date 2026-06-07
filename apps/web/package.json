@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@synapse/types": "workspace:*",
+    "jose": "^5.9.6",
     "next": "16.2.6",
     "posthog-js": "^1.379.3",
     "react": "19.2.4",

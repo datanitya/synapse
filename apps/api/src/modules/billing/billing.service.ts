@@ -2,7 +2,9 @@ import * as crypto from 'crypto';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Razorpay from 'razorpay';
+import { SubscriptionStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AnalyticsService } from '../../common/analytics/analytics.service';
 
 // Minimal types for Razorpay webhook payload
 interface RzpPaymentEntity {
@@ -35,6 +37,7 @@ export class BillingService {
   constructor(
     private prisma: PrismaService,
     private config: ConfigService,
+    private analytics: AnalyticsService,
   ) {
     this.keyId = config.get<string>('razorpay.keyId') ?? '';
     this.keySecret = config.get<string>('razorpay.keySecret') ?? '';
@@ -88,7 +91,7 @@ export class BillingService {
       where: { id: userId },
       data: {
         razorpaySubscriptionId: subscription.id,
-        subscriptionStatus: 'created',
+        subscriptionStatus: SubscriptionStatus.CREATED,
       } as object,
     });
 
@@ -129,7 +132,7 @@ export class BillingService {
         planId: freePlan?.id ?? null,
         planSince: new Date(),
         razorpaySubscriptionId: null,
-        subscriptionStatus: 'cancelled',
+        subscriptionStatus: SubscriptionStatus.CANCELLED,
       } as object,
     });
 
@@ -170,15 +173,15 @@ export class BillingService {
 
       case 'subscription.cancelled':
       case 'subscription.completed':
-        if (subscriptionId) await this.deactivateSubscription(subscriptionId, 'cancelled');
+        if (subscriptionId) await this.deactivateSubscription(subscriptionId, SubscriptionStatus.CANCELLED);
         break;
 
       case 'subscription.pending':
-        if (subscriptionId) await this.deactivateSubscription(subscriptionId, 'past_due');
+        if (subscriptionId) await this.deactivateSubscription(subscriptionId, SubscriptionStatus.PAST_DUE);
         break;
 
       case 'payment.failed':
-        if (subscriptionId) await this.deactivateSubscription(subscriptionId, 'past_due');
+        if (subscriptionId) await this.deactivateSubscription(subscriptionId, SubscriptionStatus.PAST_DUE);
         await this.logPayment(event, paymentEntity, subscriptionId, 'failed');
         break;
     }
@@ -270,11 +273,23 @@ export class BillingService {
 
     await this.prisma.user.updateMany({
       where: { razorpaySubscriptionId } as object,
-      data: { planId, planSince: new Date(), subscriptionStatus: 'active' } as object,
+      data: { planId, planSince: new Date(), subscriptionStatus: SubscriptionStatus.ACTIVE } as object,
     });
+
+    const user = await this.prisma.user.findFirst({
+      where: { razorpaySubscriptionId } as object,
+      include: { plan: true },
+    });
+    if (user) {
+      this.analytics.capture(user.id, 'plan_upgraded', {
+        planId: user.planId,
+        planName: user.plan?.displayName,
+        razorpaySubscriptionId,
+      });
+    }
   }
 
-  private async deactivateSubscription(razorpaySubscriptionId: string, status: string) {
+  private async deactivateSubscription(razorpaySubscriptionId: string, status: SubscriptionStatus) {
     const freePlan = await this.prisma.plan.findUnique({ where: { tier: 'FREE' } });
     await this.prisma.user.updateMany({
       where: { razorpaySubscriptionId } as object,

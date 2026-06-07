@@ -13,6 +13,18 @@ interface PlanStatus {
   percentUsed: number;
 }
 
+interface BrandScore {
+  score: number;
+  level: string;
+  samplesAnalyzed: number;
+  nextMilestone: string;
+}
+
+interface VoiceReport {
+  report: string | null;
+  updatedAt: string | null;
+}
+
 function formatScheduled(iso: string): string {
   return new Date(iso).toLocaleDateString('en', {
     weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
@@ -28,8 +40,11 @@ export default function DashboardPage() {
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [approved, setApproved] = useState<Draft[]>([]);
   const [planStatus, setPlanStatus] = useState<PlanStatus | null>(null);
+  const [brandScore, setBrandScore] = useState<BrandScore | null>(null);
+  const [voiceReport, setVoiceReport] = useState<VoiceReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [generatingReport, setGeneratingReport] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -37,13 +52,29 @@ export default function DashboardPage() {
       api.get<Draft[]>('/drafts?limit=5'),
       api.get<Draft[]>('/drafts?status=APPROVED'),
       api.get<PlanStatus>('/plans/status'),
-    ]).then(([trendsRes, draftsRes, approvedRes, planRes]) => {
+      api.get<BrandScore>('/brand-memory/score').catch(() => null),
+      api.get<VoiceReport>('/brand-memory/voice-report').catch(() => null),
+    ]).then(([trendsRes, draftsRes, approvedRes, planRes, scoreRes, reportRes]) => {
       setTrends(trendsRes.trends);
       setDrafts(draftsRes);
       setApproved(approvedRes);
       setPlanStatus(planRes);
+      setBrandScore(scoreRes);
+      setVoiceReport(reportRes);
     }).catch(console.error).finally(() => setLoading(false));
   }, []);
+
+  async function handleGenerateReport() {
+    setGeneratingReport(true);
+    try {
+      const res = await api.post<VoiceReport>('/brand-memory/voice-report');
+      setVoiceReport(res);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setGeneratingReport(false);
+    }
+  }
 
   const pendingDrafts = drafts.filter((d) => d.status === 'DRAFT' || d.status === 'REFINED');
   const now = Date.now();
@@ -179,6 +210,83 @@ export default function DashboardPage() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Brand Score + Voice Report */}
+      {(loading || brandScore) && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          {/* Brand Score */}
+          <div className="bg-slate-900 rounded-xl border border-slate-800 p-5">
+            <p className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-3">Brand Score</p>
+            {loading ? (
+              <div className="h-16 bg-slate-800 rounded-lg animate-pulse" />
+            ) : brandScore ? (
+              <div className="flex items-center gap-5">
+                {/* Score ring */}
+                <div className="relative shrink-0">
+                  <svg width="72" height="72" viewBox="0 0 72 72">
+                    <circle cx="36" cy="36" r="30" fill="none" stroke="#1e293b" strokeWidth="6" />
+                    <circle
+                      cx="36" cy="36" r="30" fill="none"
+                      stroke={brandScore.score >= 80 ? '#10b981' : brandScore.score >= 60 ? '#3b82f6' : brandScore.score >= 40 ? '#f59e0b' : '#64748b'}
+                      strokeWidth="6"
+                      strokeDasharray={`${(brandScore.score / 100) * 188.5} 188.5`}
+                      strokeLinecap="round"
+                      transform="rotate(-90 36 36)"
+                    />
+                  </svg>
+                  <span className="absolute inset-0 flex items-center justify-center text-white font-bold text-lg tabular-nums">
+                    {brandScore.score}
+                  </span>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-white font-semibold text-base">{brandScore.level}</p>
+                  <p className="text-slate-500 text-xs mt-1 leading-relaxed">{brandScore.nextMilestone}</p>
+                  <p className="text-slate-600 text-[10px] mt-2">{brandScore.samplesAnalyzed} edits analyzed</p>
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          {/* Voice Report */}
+          <div className="bg-slate-900 rounded-xl border border-slate-800 p-5">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-slate-500 text-xs font-medium uppercase tracking-wider">Voice Report</p>
+              <button
+                onClick={handleGenerateReport}
+                disabled={generatingReport}
+                className="text-[10px] px-2.5 py-1 rounded-lg border border-slate-700 text-slate-400 hover:text-white hover:border-slate-600 transition-colors disabled:opacity-40"
+              >
+                {generatingReport ? 'Generating…' : 'Refresh'}
+              </button>
+            </div>
+            {loading ? (
+              <div className="space-y-2">
+                {[0, 1, 2].map((i) => <div key={i} className="h-3 bg-slate-800 rounded animate-pulse" style={{ width: `${85 - i * 15}%` }} />)}
+              </div>
+            ) : voiceReport?.report ? (
+              <div>
+                <p className="text-slate-300 text-sm leading-relaxed">{voiceReport.report}</p>
+                {voiceReport.updatedAt && (
+                  <p className="text-slate-600 text-[10px] mt-3">
+                    Updated {new Date(voiceReport.updatedAt).toLocaleDateString('en', { month: 'short', day: 'numeric' })}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="text-center py-4">
+                <p className="text-slate-600 text-sm">No report yet</p>
+                <button
+                  onClick={handleGenerateReport}
+                  disabled={generatingReport}
+                  className="text-blue-400 text-xs hover:underline mt-1 disabled:opacity-40"
+                >
+                  {generatingReport ? 'Generating…' : 'Generate your first report →'}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

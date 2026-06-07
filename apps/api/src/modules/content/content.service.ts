@@ -4,6 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
 import { ImagesService } from '../images/images.service';
 import { BrandMemoryService } from '../brand-memory/brand-memory.service';
+import { AnalyticsService } from '../../common/analytics/analytics.service';
 import { ToneStyle, PostingGoal, UserPreferences, ContentType } from '@prisma/client';
 
 const TONE_DESCRIPTIONS: Record<ToneStyle, string> = {
@@ -74,6 +75,7 @@ export class ContentService {
     private ai: AiService,
     private images: ImagesService,
     private brandMemory: BrandMemoryService,
+    private analytics: AnalyticsService,
   ) {}
 
   async generatePost(userId: string, options: GeneratePostOptions) {
@@ -145,6 +147,12 @@ export class ContentService {
         },
       },
       include: { variations: true },
+    });
+
+    this.analytics.capture(userId, 'draft_generated', {
+      contentType: 'POST',
+      trendId: options.trendId ?? null,
+      draftId: draft.id,
     });
 
     return draft;

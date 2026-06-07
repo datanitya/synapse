@@ -8,6 +8,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { AdminGuard } from '../../common/guards/admin.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { TrendsService } from './trends.service';
 
@@ -44,6 +45,7 @@ export class TrendsController {
   }
 
   @Post('sync')
+  @UseGuards(AdminGuard)
   async triggerSync() {
     await this.trendsService.syncHackerNews();
     return { message: 'Sync triggered' };

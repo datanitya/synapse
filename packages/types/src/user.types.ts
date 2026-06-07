@@ -29,6 +29,8 @@ export type DayOfWeek =
   | 'SATURDAY'
   | 'SUNDAY';
 
+export type AiProviderType = 'OPENAI' | 'GEMINI' | 'CLAUDE';
+
 export interface UserProfile {
   id: string;
   linkedinId: string;
@@ -38,15 +40,14 @@ export interface UserProfile {
   profilePictureUrl?: string;
   linkedinProfileUrl?: string;
   onboardingComplete: boolean;
+  role: 'USER' | 'ADMIN';
+  planId?: string;
   createdAt: string;
 }
-
-export type AiProviderType = 'OPENAI' | 'GEMINI' | 'CLAUDE';
 
 export interface UserPreferences {
   id: string;
   userId: string;
-  niche: string;
   niches: string[];
   goals: PostingGoal[];
   targetAudience?: string;
@@ -69,14 +70,49 @@ export interface UserPreferences {
   linkedinClientId?: string | null;
   hasLinkedinSecret?: boolean;
   linkedinCompanyId?: string | null;
+  // Advanced brand voice
+  hookStyle?: string | null;
+  writingStyle?: string | null;
+  sentenceLength?: string | null;
+  ctaStyle?: string | null;
+  valueProposition?: string | null;
 }
 
 export interface UserWithPreferences extends UserProfile {
   preferences?: UserPreferences;
 }
 
+export interface BrandDna {
+  id: string;
+  userId: string;
+  hookStyle?: string;
+  tone?: string;
+  paragraphLength?: 'short' | 'medium' | 'long';
+  emojiUsage?: 'none' | 'low' | 'medium' | 'high';
+  preferredTopics: string[];
+  avgPostLength?: number;
+  samplesAnalyzed: number;
+  rawDna?: Record<string, unknown>;
+  brandScore?: number;
+  voiceReport?: string;
+  voiceReportUpdatedAt?: string;
+  updatedAt: string;
+  createdAt: string;
+}
+
+export interface BrandScoreResponse {
+  score: number;
+  samplesAnalyzed: number;
+  level: 'New' | 'Emerging' | 'Growing' | 'Established' | 'Expert';
+  nextMilestone: string;
+}
+
+export interface VoiceReportResponse {
+  report: string | null;
+  updatedAt: string | null;
+}
+
 export interface CompleteOnboardingPayload {
-  niche: string;
   niches: string[];
   goals: PostingGoal[];
   targetAudience?: string;

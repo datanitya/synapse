@@ -19,7 +19,6 @@ export class OnboardingService {
       where: { userId },
       create: {
         userId,
-        niche: dto.niche,
         niches: dto.niches,
         goals: dto.goals,
         targetAudience: dto.targetAudience,
@@ -34,7 +33,6 @@ export class OnboardingService {
         reminderLeadHours: dto.reminderLeadHours ?? 1,
       },
       update: {
-        niche: dto.niche,
         niches: dto.niches,
         goals: dto.goals,
         targetAudience: dto.targetAudience,

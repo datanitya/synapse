@@ -67,7 +67,6 @@ export default function OnboardingWizard() {
     setError('');
     try {
       await api.post('/onboarding/complete', {
-        niche: niches[0],
         niches,
         goals,
         toneStyle: tone,

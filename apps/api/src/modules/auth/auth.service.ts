@@ -13,6 +13,7 @@ interface LinkedInUserData {
   linkedinProfileUrl?: string;
   accessToken: string;
   refreshToken?: string;
+  tokenExpiresAt?: Date;
 }
 
 @Injectable()
@@ -51,6 +52,7 @@ export class AuthService {
         profilePictureUrl: data.profilePictureUrl,
         accessToken: encryptedAccess,
         refreshToken: encryptedRefresh,
+        tokenExpiresAt: data.tokenExpiresAt ?? null,
       },
     });
 

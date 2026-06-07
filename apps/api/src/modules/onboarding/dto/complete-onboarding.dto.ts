@@ -17,9 +17,6 @@ import {
 } from '@prisma/client';
 
 export class CompleteOnboardingDto {
-  @IsString()
-  niche: string;
-
   @IsArray()
   @ArrayNotEmpty()
   niches: string[];

@@ -10,23 +10,46 @@ async function main() {
       monthlyTokenLimit: 50_000,
       priceInr: 0,
       currency: 'INR',
-      features: ['Trends feed', '~10 posts/month', 'Drafts', 'Content bank'],
+      isActive: true,
+      features: [
+        'Trends feed (HackerNews + Google News)',
+        '~10 posts per month',
+        'Drafts & content bank',
+        'Brand DNA learning',
+        'LinkedIn login',
+      ],
     },
     {
       tier: 'PRO' as const,
-      displayName: 'Creator',
+      displayName: 'Pro',
       monthlyTokenLimit: 500_000,
-      priceInr: 299,
+      priceInr: 499,
       currency: 'INR',
-      features: ['Unlimited posts', 'All content types', 'Content calendar', 'Posting reminders', 'All AI models'],
+      isActive: true,
+      features: [
+        '500,000 tokens / month (~100 posts)',
+        'Scheduled auto-publish to LinkedIn',
+        'Opportunity Score on every trend',
+        'Brand Score + Voice Report',
+        'Image generation',
+        'All AI providers (GPT-4o, Claude, Gemini)',
+      ],
     },
     {
       tier: 'BUSINESS' as const,
-      displayName: 'Pro',
+      displayName: 'Business',
       monthlyTokenLimit: 0,
-      priceInr: 999,
+      priceInr: 1499,
       currency: 'INR',
-      features: ['Unlimited tokens', 'Image generation', 'Priority support', 'Advanced trend filters', 'Everything in Creator'],
+      isActive: true,
+      features: [
+        'Unlimited tokens',
+        'Everything in Pro',
+        'Developer API access',
+        'Team accounts (5 seats)',
+        'Post analytics (impressions, likes)',
+        'Priority support',
+      ],
     },
   ];
 
@@ -38,13 +61,18 @@ async function main() {
         monthlyTokenLimit: plan.monthlyTokenLimit,
         priceInr: plan.priceInr,
         currency: plan.currency,
+        isActive: plan.isActive,
         features: plan.features,
       },
       create: plan,
     });
+    const tokens = plan.monthlyTokenLimit === 0 ? 'unlimited' : plan.monthlyTokenLimit.toLocaleString();
+    console.log(`  ✓ ${plan.displayName} (₹${plan.priceInr}/mo · ${tokens} tokens)`);
   }
 
-  console.log('Plans seeded (INR pricing).');
+  console.log('Seeding complete.');
 }
 
-main().catch(console.error).finally(() => prisma.$disconnect());
+main()
+  .catch((e) => { console.error(e); process.exit(1); })
+  .finally(() => prisma.$disconnect());

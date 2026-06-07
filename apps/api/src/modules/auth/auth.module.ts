@@ -6,6 +6,7 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { LinkedInStrategy } from './strategies/linkedin.strategy';
 import { JwtStrategy } from './strategies/jwt.strategy';
+import { LinkedInTokenRefreshScheduler } from './linkedin-token-refresh.scheduler';
 
 @Module({
   imports: [
@@ -20,7 +21,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, LinkedInStrategy, JwtStrategy],
+  providers: [AuthService, LinkedInStrategy, JwtStrategy, LinkedInTokenRefreshScheduler],
   exports: [AuthService, JwtModule],
 })
 export class AuthModule {}

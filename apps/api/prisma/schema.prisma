@@ -94,6 +94,21 @@ enum ContentSource {
   MANUAL
 }
 
+enum SubscriptionStatus {
+  CREATED
+  AUTHENTICATED
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  COMPLETED
+}
+
+enum OrgRole {
+  OWNER
+  EDITOR
+  VIEWER
+}
+
 // ─── User ─────────────────────────────────────────────────────────────────────
 
 model User {
@@ -118,7 +133,8 @@ model User {
 
   razorpayCustomerId     String?
   razorpaySubscriptionId String?
-  subscriptionStatus     String? // "created" | "authenticated" | "active" | "past_due" | "cancelled"
+  stripeSubscriptionId   String?
+  subscriptionStatus     SubscriptionStatus?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -130,6 +146,8 @@ model User {
   tokenUsageLogs TokenUsageLog[]
   brandDna       BrandDna?
   contentEdits   ContentEdit[]
+  apiKeys        ApiKey[]
+  orgMemberships OrgMember[]
 }
 
 // ─── Plan ─────────────────────────────────────────────────────────────────────
@@ -143,7 +161,8 @@ model Plan {
   currency          String   @default("INR")
   features          Json
   isActive          Boolean  @default(true)
-  razorpayPlanId    String?  // Razorpay Plan ID — set in admin after creating plan in Razorpay dashboard
+  razorpayPlanId    String?
+  stripePriceId     String?  // Stripe Price ID — set in admin after creating price in Stripe dashboard
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   users             User[]
@@ -156,7 +175,6 @@ model UserPreferences {
   userId String @unique
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  niche          String
   niches         String[]
   goals          PostingGoal[]
   targetAudience String?
@@ -223,6 +241,8 @@ model Trend {
   @@index([fetchedAt])
   @@index([score])
   @@index([expiresAt])
+  @@index([source, professionalRelevance])
+  @@index([categories], type: Gin)
 }
 
 model SavedTrend {
@@ -255,14 +275,17 @@ model Draft {
   userNotes    String?
 
   suggestedPostAt DateTime?
+  scheduledAt     DateTime?  // set by user to queue an auto-publish job
   postedAt        DateTime?
 
-  contentType  ContentType   @default(POST)
-  source       ContentSource @default(AI)
-  imageUrl     String?
-  title        String?
+  contentType     ContentType   @default(POST)
+  source          ContentSource @default(AI)
+  imageUrl        String?
+  title           String?
+  linkedinPostId  String?
 
-  variations DraftVariation[]
+  variations    DraftVariation[]
+  postAnalytics PostAnalytics?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -321,6 +344,65 @@ model TokenUsageLog {
   @@index([userId, createdAt])
 }
 
+// ─── Developer API Keys ───────────────────────────────────────────────────────
+
+model ApiKey {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name       String
+  keyHash    String    @unique  // SHA-256 of the full key — never stored plaintext
+  prefix     String             // First 12 chars shown in UI (e.g. sk_live_abc1...)
+  lastUsedAt DateTime?
+  expiresAt  DateTime?
+  isActive   Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+}
+
+// ─── Organizations (Team Accounts) ────────────────────────────────────────────
+
+model Organization {
+  id        String      @id @default(cuid())
+  name      String
+  slug      String      @unique
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  members   OrgMember[]
+  invites   OrgInvite[]
+
+  @@index([slug])
+}
+
+model OrgMember {
+  id        String       @id @default(cuid())
+  orgId     String
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      OrgRole
+  joinedAt  DateTime     @default(now())
+
+  @@unique([orgId, userId])
+  @@index([userId])
+}
+
+model OrgInvite {
+  id        String       @id @default(cuid())
+  orgId     String
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  email     String
+  role      OrgRole      @default(EDITOR)
+  token     String       @unique
+  expiresAt DateTime
+  createdAt DateTime     @default(now())
+
+  @@index([token])
+  @@index([email])
+}
+
 // ─── WaitlistEntry ────────────────────────────────────────────────────────────
 
 model WaitlistEntry {
@@ -343,10 +425,31 @@ model BrandDna {
   emojiUsage      String?
   preferredTopics String[]
   avgPostLength   Int?
-  samplesAnalyzed Int      @default(0)
-  rawDna          Json?
-  updatedAt       DateTime @updatedAt
-  createdAt       DateTime @default(now())
+  samplesAnalyzed      Int      @default(0)
+  rawDna               Json?
+  brandScore           Int?
+  voiceReport          String?
+  voiceReportUpdatedAt DateTime?
+  updatedAt            DateTime @updatedAt
+  createdAt            DateTime @default(now())
+}
+
+// ─── Post Analytics ───────────────────────────────────────────────────────────
+
+model PostAnalytics {
+  id             String   @id @default(cuid())
+  draftId        String   @unique
+  draft          Draft    @relation(fields: [draftId], references: [id], onDelete: Cascade)
+  linkedinPostId String
+  impressions    Int      @default(0)
+  likes          Int      @default(0)
+  comments       Int      @default(0)
+  shares         Int      @default(0)
+  clickCount     Int      @default(0)
+  fetchedAt      DateTime @default(now())
+  createdAt      DateTime @default(now())
+
+  @@index([fetchedAt])
 }
 
 model ContentEdit {
@@ -359,6 +462,24 @@ model ContentEdit {
   editedAt  DateTime @default(now())
 
   @@index([userId, editedAt])
+}
+
+// ─── Audit Log ────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String
+  actorEmail String
+  action     String   // "assign_plan" | "update_plan" | "view_user"
+  targetType String?  // "user" | "plan"
+  targetId   String?
+  meta       Json?    // before/after values or other context
+
+  createdAt DateTime @default(now())
+
+  @@index([actorId])
+  @@index([createdAt])
+  @@index([targetType, targetId])
 }
 
 // ─── Payment Logs ─────────────────────────────────────────────────────────────

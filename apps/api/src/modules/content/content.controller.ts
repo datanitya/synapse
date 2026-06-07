@@ -1,4 +1,5 @@
 import { Controller, Post, Body, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ContentService } from './content.service';
@@ -18,6 +19,7 @@ export class ContentController {
   constructor(private contentService: ContentService) {}
 
   @Post('generate')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   generate(@CurrentUser() user: AuthUser, @Body() dto: GeneratePostDto) {
     if (dto.contentType === 'IMAGE') return this.contentService.generateImagePost(user.id, dto);
     if (dto.contentType === 'BLOG') return this.contentService.generateBlog(user.id, dto);

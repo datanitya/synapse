@@ -24,7 +24,13 @@ import { AdminModule } from './modules/admin/admin.module';
 import { WaitlistModule } from './modules/waitlist/waitlist.module';
 import { BrandMemoryModule } from './modules/brand-memory/brand-memory.module';
 import { BillingModule } from './modules/billing/billing.module';
+import { PublishingModule } from './modules/publishing/publishing.module';
+import { DeveloperModule } from './modules/developer/developer.module';
+import { CommunityModule } from './modules/community/community.module';
+import { OrganizationsModule } from './modules/organizations/organizations.module';
 import { CryptoModule } from './common/crypto/crypto.module';
+import { RedisModule } from './common/redis/redis.module';
+import { AnalyticsModule } from './common/analytics/analytics.module';
 import configuration from './config/configuration';
 
 @Module({
@@ -36,6 +42,8 @@ import configuration from './config/configuration';
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 60 }]),
     ScheduleModule.forRoot(),
     CryptoModule,
+    RedisModule,
+    AnalyticsModule,
     PrismaModule,
     AiModule,
     AuthModule,
@@ -55,6 +63,10 @@ import configuration from './config/configuration';
     WaitlistModule,
     BrandMemoryModule,
     BillingModule,
+    PublishingModule,
+    DeveloperModule,
+    CommunityModule,
+    OrganizationsModule,
   ],
   controllers: [AppController],
   providers: [
