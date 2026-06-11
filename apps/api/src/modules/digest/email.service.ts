@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 
 interface DigestEmailData {
   trendTitle: string;
@@ -13,38 +13,86 @@ interface DigestEmailData {
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
-  private transporter: nodemailer.Transporter;
+  private resend: Resend | null = null;
+  private readonly from: string;
 
   constructor(private config: ConfigService) {
-    this.transporter = nodemailer.createTransport({
-      host: config.get<string>('smtp.host'),
-      port: config.get<number>('smtp.port') ?? 587,
-      secure: config.get<boolean>('smtp.secure') ?? false,
-      auth: {
-        user: config.get<string>('smtp.user'),
-        pass: config.get<string>('smtp.pass'),
-      },
+    const apiKey = config.get<string>('email.resendApiKey');
+    this.from = config.get<string>('email.from') ?? 'SYNAPSE <noreply@synapse.app>';
+
+    if (apiKey) {
+      this.resend = new Resend(apiKey);
+    } else {
+      this.logger.warn('RESEND_API_KEY not set — email delivery is disabled');
+    }
+  }
+
+  async sendOrgInvite(to: string, data: {
+    orgName: string;
+    inviterName: string;
+    role: string;
+    inviteToken: string;
+    webUrl: string;
+    expiresAt: Date;
+  }): Promise<void> {
+    if (!this.resend) {
+      this.logger.warn(`Email skipped (no API key) — would have sent org invite to ${to}`);
+      return;
+    }
+
+    const acceptUrl = `${data.webUrl}/organizations/accept?token=${data.inviteToken}`;
+    const expiryStr = data.expiresAt.toLocaleDateString('en', { month: 'long', day: 'numeric', year: 'numeric' });
+
+    const { error } = await this.resend.emails.send({
+      from: this.from,
+      to,
+      subject: `${data.inviterName} invited you to ${data.orgName} on SYNAPSE`,
+      html: `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#020617;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <div style="max-width:520px;margin:0 auto;padding:48px 24px;">
+    <span style="font-size:12px;font-weight:700;letter-spacing:.2em;color:#3b82f6;text-transform:uppercase">SYNAPSE</span>
+    <h1 style="margin:14px 0 8px;font-size:22px;color:#f8fafc;font-weight:700;line-height:1.3">
+      You're invited to join <span style="color:#3b82f6">${data.orgName}</span>
+    </h1>
+    <p style="color:#64748b;font-size:14px;margin:0 0 28px">
+      ${data.inviterName} has invited you as a <strong style="color:#94a3b8">${data.role}</strong>.
+    </p>
+    <a href="${acceptUrl}"
+       style="display:inline-block;background:#3b82f6;color:#fff;text-decoration:none;padding:13px 32px;border-radius:8px;font-size:14px;font-weight:600">
+      Accept invitation →
+    </a>
+    <p style="color:#334155;font-size:12px;margin:24px 0 0">
+      This invite expires on ${expiryStr}. If you weren't expecting this, ignore it.
+    </p>
+  </div>
+</body>
+</html>`,
     });
+
+    if (error) throw new Error(`Resend error: ${error.message}`);
+    this.logger.log(`Org invite sent to ${to} for ${data.orgName}`);
   }
 
   async sendDailyDigest(to: string, data: DigestEmailData): Promise<void> {
-    const subject = `Your daily LinkedIn post — ${data.trendTitle}`;
-    await this.transporter.sendMail({
-      from: this.config.get<string>('smtp.from') ?? 'SYNAPSE <noreply@synapse.app>',
+    if (!this.resend) {
+      this.logger.warn(`Email skipped (no API key) — would have sent digest to ${to}`);
+      return;
+    }
+
+    const { error } = await this.resend.emails.send({
+      from: this.from,
       to,
-      subject,
+      subject: `Your daily LinkedIn post — ${data.trendTitle}`,
       html: this.buildHtml(data),
     });
-    this.logger.log(`Digest email sent to ${to}`);
-  }
 
-  async verifyConnection(): Promise<boolean> {
-    try {
-      await this.transporter.verify();
-      return true;
-    } catch {
-      return false;
+    if (error) {
+      throw new Error(`Resend error: ${error.message}`);
     }
+
+    this.logger.log(`Digest email sent to ${to}`);
   }
 
   private buildHtml(data: DigestEmailData): string {
@@ -90,7 +138,7 @@ export class EmailService {
         Open draft in SYNAPSE →
       </a>
       <p style="margin:14px 0 4px;font-size:12px;color:#475569">
-        Pick the variation you like, edit if needed, then copy and post manually on LinkedIn.
+        Pick the variation you like, edit if needed, then post to LinkedIn.
       </p>
       ${trendLink}
     </div>

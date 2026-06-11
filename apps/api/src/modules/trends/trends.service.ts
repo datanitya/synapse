@@ -1,10 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
+import { RedisService } from '../../common/redis/redis.service';
+import { AnalyticsService } from '../../common/analytics/analytics.service';
 import { HackerNewsService } from './hackernews.service';
 import { GoogleNewsService, NewsArticle, DEFAULT_NICHE_QUERIES } from './google-news.service';
 import { LinkedInService } from './linkedin.service';
 import { TrendSource } from '@prisma/client';
+
+const INTEL_CACHE_TTL = 86_400; // 24 hours in seconds
 
 const TREND_TTL_HOURS = 48;
 const MIN_PROFESSIONAL_RELEVANCE = 6;
@@ -122,6 +126,8 @@ export class TrendsService {
   constructor(
     private prisma: PrismaService,
     private ai: AiService,
+    private redis: RedisService,
+    private analytics: AnalyticsService,
     private hn: HackerNewsService,
     private googleNews: GoogleNewsService,
     private linkedin: LinkedInService,
@@ -366,11 +372,13 @@ export class TrendsService {
   }
 
   async saveTrend(userId: string, trendId: string) {
-    return this.prisma.savedTrend.upsert({
+    const saved = await this.prisma.savedTrend.upsert({
       where: { userId_trendId: { userId, trendId } },
       create: { userId, trendId },
       update: {},
     });
+    this.analytics.capture(userId, 'trend_saved', { trendId });
+    return saved;
   }
 
   async unsaveTrend(userId: string, trendId: string) {
@@ -410,21 +418,42 @@ export class TrendsService {
     // ── Phase B: AI enrichment for qualified articles only (summary + intelligence) ──
     const toEnrich = qualified.slice(0, MAX_ARTICLES_PER_SYNC);
 
-    // Skip articles already enriched within the last 24 hours
-    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const existing = await this.prisma.trend.findMany({
-      where: { externalId: { in: toEnrich.map((i) => i.id) }, fetchedAt: { gt: cutoff } },
-      select: { externalId: true, summary: true, intelligence: true },
-    });
-
+    // Redis-first cache: check all articles in parallel, fall back to DB for misses
     const cachedMap = new Map<string, AiEnrichmentResult>();
-    for (const t of existing) {
-      if (t.intelligence != null) {
-        cachedMap.set(t.externalId, {
-          id: t.externalId,
-          summary: t.summary ?? '',
-          intelligence: t.intelligence as unknown as TrendIntelligence,
-        });
+
+    await Promise.all(
+      toEnrich.map(async (item) => {
+        const raw = await this.redis.get(`trend:intel:${item.id}`);
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw) as AiEnrichmentResult;
+            cachedMap.set(item.id, parsed);
+          } catch {
+            // Corrupt cache entry — will re-enrich
+          }
+        }
+      }),
+    );
+
+    // For articles still missing from Redis, fall back to DB (covers restart scenarios)
+    const missingFromRedis = toEnrich.filter((i) => !cachedMap.has(i.id));
+    if (missingFromRedis.length > 0) {
+      const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const existing = await this.prisma.trend.findMany({
+        where: { externalId: { in: missingFromRedis.map((i) => i.id) }, fetchedAt: { gt: cutoff } },
+        select: { externalId: true, summary: true, intelligence: true },
+      });
+      for (const t of existing) {
+        if (t.intelligence != null) {
+          const entry: AiEnrichmentResult = {
+            id: t.externalId,
+            summary: t.summary ?? '',
+            intelligence: t.intelligence as unknown as TrendIntelligence,
+          };
+          cachedMap.set(t.externalId, entry);
+          // Backfill Redis so next sync skips the DB entirely
+          await this.redis.setex(`trend:intel:${t.externalId}`, INTEL_CACHE_TTL, JSON.stringify(entry));
+        }
       }
     }
 
@@ -436,6 +465,13 @@ export class TrendsService {
     const freshlyEnriched = needsEnrichment.length > 0
       ? await this.enrichWithAi(needsEnrichment)
       : new Map<string, AiEnrichmentResult>();
+
+    // Store freshly enriched results in Redis for future syncs
+    await Promise.all(
+      [...freshlyEnriched.entries()].map(([id, entry]) =>
+        this.redis.setex(`trend:intel:${id}`, INTEL_CACHE_TTL, JSON.stringify(entry)),
+      ),
+    );
 
     // Merge cached + freshly enriched
     const enriched = new Map<string, AiEnrichmentResult>([...cachedMap, ...freshlyEnriched]);

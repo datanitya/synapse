@@ -1,6 +1,7 @@
 import {
   Controller,
   Get,
+  Post,
   Patch,
   Delete,
   Param,
@@ -12,13 +13,17 @@ import { DraftStatus } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { DraftsService } from './drafts.service';
+import { PublishingService } from '../publishing/publishing.service';
 
 interface AuthUser { id: string }
 
 @Controller('drafts')
 @UseGuards(JwtAuthGuard)
 export class DraftsController {
-  constructor(private draftsService: DraftsService) {}
+  constructor(
+    private draftsService: DraftsService,
+    private publishingService: PublishingService,
+  ) {}
 
   @Get()
   findAll(
@@ -60,6 +65,25 @@ export class DraftsController {
     @Param('variationId') variationId: string,
   ) {
     return this.draftsService.selectVariation(user.id, id, variationId);
+  }
+
+  @Post(':id/publish')
+  publish(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.draftsService.publish(user.id, id);
+  }
+
+  @Post(':id/schedule')
+  schedule(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: { scheduledAt: string },
+  ) {
+    return this.publishingService.schedulePublish(user.id, id, new Date(body.scheduledAt));
+  }
+
+  @Delete(':id/schedule')
+  cancelSchedule(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.publishingService.cancelScheduledPublish(user.id, id);
   }
 
   @Delete(':id')

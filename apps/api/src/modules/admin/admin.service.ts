@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 
 const MODEL_PRICING: Record<string, { input: number; output: number }> = {
@@ -124,18 +125,26 @@ export class AdminService {
     return { ...user, usageHistory: history };
   }
 
-  async assignPlan(userId: string, planId: string) {
+  async assignPlan(actor: { id: string; email: string }, userId: string, planId: string) {
     const [plan, user] = await Promise.all([
       this.prisma.plan.findUnique({ where: { id: planId } }),
-      this.prisma.user.findUnique({ where: { id: userId } }),
+      this.prisma.user.findUnique({ where: { id: userId }, include: { plan: true } }),
     ]);
     if (!plan) throw new NotFoundException('Plan not found');
     if (!user) throw new NotFoundException('User not found');
-    return this.prisma.user.update({
+
+    const updated = await this.prisma.user.update({
       where: { id: userId },
       data: { planId, planSince: new Date() },
       include: { plan: true },
     });
+
+    await this.writeAudit(actor, 'assign_plan', 'user', userId, {
+      from: user.plan?.displayName ?? null,
+      to: plan.displayName,
+    });
+
+    return updated;
   }
 
   getPlans() {
@@ -182,12 +191,39 @@ export class AdminService {
     };
   }
 
-  async updatePlan(planId: string, data: { displayName?: string; monthlyTokenLimit?: number; priceInr?: number; features?: string[]; isActive?: boolean; razorpayPlanId?: string }) {
+  async updatePlan(
+    actor: { id: string; email: string },
+    planId: string,
+    data: { displayName?: string; monthlyTokenLimit?: number; priceInr?: number; features?: string[]; isActive?: boolean; razorpayPlanId?: string | null; stripePriceId?: string | null },
+  ) {
     try {
-      return await this.prisma.plan.update({ where: { id: planId }, data });
+      const updated = await this.prisma.plan.update({ where: { id: planId }, data });
+      await this.writeAudit(actor, 'update_plan', 'plan', planId, { changes: data });
+      return updated;
     } catch (e: any) {
       if (e?.code === 'P2025') throw new NotFoundException('Plan not found');
       throw e;
     }
+  }
+
+  getAuditLogs(page = 1, limit = 50) {
+    const skip = (page - 1) * limit;
+    return this.prisma.auditLog.findMany({
+      skip,
+      take: limit,
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  private async writeAudit(
+    actor: { id: string; email: string },
+    action: string,
+    targetType: string,
+    targetId: string,
+    meta?: Prisma.InputJsonValue,
+  ) {
+    await this.prisma.auditLog.create({
+      data: { actorId: actor.id, actorEmail: actor.email, action, targetType, targetId, meta },
+    });
   }
 }

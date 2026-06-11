@@ -71,15 +71,11 @@ export class UsersService {
   }
 
   async updatePreferences(userId: string, dto: UpdatePreferencesDto) {
-    const existing = await this.prisma.userPreferences.findUnique({ where: { userId } });
-    const niche = dto.niches?.[0] ?? existing?.niche ?? '';
-
     return this.prisma.userPreferences.upsert({
       where: { userId },
-      update: { ...dto, niche },
+      update: dto,
       create: {
         userId,
-        niche,
         niches: dto.niches ?? [],
         goals: dto.goals ?? [],
         toneStyle: dto.toneStyle ?? 'PROFESSIONAL',

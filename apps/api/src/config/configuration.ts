@@ -61,12 +61,19 @@ export default () => ({
     apiSecret: process.env.CLOUDINARY_API_SECRET,
   },
 
-  smtp: {
-    host: process.env.SMTP_HOST ?? 'smtp.gmail.com',
-    port: parseInt(process.env.SMTP_PORT ?? '587', 10),
-    secure: process.env.SMTP_SECURE === 'true',
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
+  email: {
+    resendApiKey: process.env.RESEND_API_KEY,
     from: process.env.EMAIL_FROM ?? 'SYNAPSE <noreply@synapse.app>',
+  },
+
+  posthog: {
+    apiKey: process.env.POSTHOG_API_KEY,
+    host: process.env.POSTHOG_HOST ?? 'https://app.posthog.com',
+  },
+
+  stripe: {
+    secretKey: process.env.STRIPE_SECRET_KEY,
+    webhookSecret: process.env.STRIPE_WEBHOOK_SECRET,
+    publishableKey: process.env.STRIPE_PUBLISHABLE_KEY,
   },
 });

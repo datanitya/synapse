@@ -5,9 +5,6 @@ import {
 import { ToneStyle, PostingGoal, PostingFrequency, DayOfWeek } from '@prisma/client';
 
 export class UpdatePreferencesDto {
-  @IsOptional() @IsString()
-  niche?: string;
-
   @IsOptional() @IsArray()
   niches?: string[];
 
