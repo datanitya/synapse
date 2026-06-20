@@ -166,7 +166,6 @@ export default function SettingsPage() {
     try {
       const payload = {
         niches: form.niches,
-        niche: form.niches[0],
         goals: form.goals,
         toneStyle: form.toneStyle,
         postingFrequency: form.postingFrequency,
