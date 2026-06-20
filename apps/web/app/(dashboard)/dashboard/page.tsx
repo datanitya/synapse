@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { api } from '../../../lib/api-client';
+import { api, ApiError } from '../../../lib/api-client';
+import NoApiKeyModal from '../../../components/shared/NoApiKeyModal';
 import type { Trend, Draft } from '@synapse/types';
 
 interface PlanStatus {
@@ -45,6 +46,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [generatingReport, setGeneratingReport] = useState(false);
+  const [noApiKey, setNoApiKey] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -69,8 +71,10 @@ export default function DashboardPage() {
     try {
       const res = await api.post<VoiceReport>('/brand-memory/voice-report');
       setVoiceReport(res);
-    } catch (e) {
-      console.error(e);
+    } catch (e: unknown) {
+      if (e instanceof ApiError && e.code === 'NO_API_KEY') {
+        setNoApiKey(true);
+      }
     } finally {
       setGeneratingReport(false);
     }
@@ -133,6 +137,7 @@ export default function DashboardPage() {
 
   return (
     <div className="p-6 md:p-10 max-w-5xl mx-auto space-y-8">
+      {noApiKey && <NoApiKeyModal onClose={() => setNoApiKey(false)} />}
       {/* Header */}
       <div className="flex items-end justify-between">
         <div>

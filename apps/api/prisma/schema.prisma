@@ -135,6 +135,7 @@ model User {
   razorpaySubscriptionId String?
   stripeSubscriptionId   String?
   subscriptionStatus     SubscriptionStatus?
+  usePlatformKey         Boolean             @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -93,6 +93,7 @@ export class AdminService {
           ? Math.min(100, Math.round(((tokenMap[u.id] ?? 0) / u.plan.monthlyTokenLimit) * 100))
           : 0,
         createdAt: u.createdAt,
+        usePlatformKey: (u as unknown as { usePlatformKey?: boolean }).usePlatformKey ?? false,
       })),
       total,
       page,
@@ -204,6 +205,22 @@ export class AdminService {
       if (e?.code === 'P2025') throw new NotFoundException('Plan not found');
       throw e;
     }
+  }
+
+  async setPlatformAccess(actor: { id: string; email: string }, userId: string, allow: boolean) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { usePlatformKey: allow } as object,
+    });
+
+    await this.writeAudit(actor, allow ? 'grant_platform_access' : 'revoke_platform_access', 'user', userId, {
+      targetEmail: user.email,
+    });
+
+    return { userId, usePlatformKey: allow };
   }
 
   getAuditLogs(page = 1, limit = 50) {

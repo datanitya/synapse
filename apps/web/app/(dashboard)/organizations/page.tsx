@@ -24,7 +24,7 @@ interface Org {
   slug: string;
   createdAt: string;
   members: OrgMember[];
-  invites: OrgInvite[];
+  invites: OrgInvite[] | undefined;
 }
 
 const ROLE_COLORS: Record<string, string> = {
@@ -264,10 +264,10 @@ export default function OrganizationsPage() {
               </div>
 
               {/* Pending invites */}
-              {selectedOrg.invites.length > 0 && (
+              {(selectedOrg.invites?.length ?? 0) > 0 && (
                 <div className="pt-2 space-y-2">
                   <p className="text-slate-600 text-xs font-medium uppercase tracking-wider">Pending invites</p>
-                  {selectedOrg.invites.map((inv) => (
+                  {selectedOrg.invites?.map((inv) => (
                     <div key={inv.id} className="flex items-center gap-3 bg-slate-800/60 rounded-lg px-3 py-2">
                       <div className="flex-1 min-w-0">
                         <p className="text-slate-300 text-sm truncate">{inv.email}</p>

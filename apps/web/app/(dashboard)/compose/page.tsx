@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { usePostHog } from 'posthog-js/react';
 import { api, ApiError } from '../../../lib/api-client';
+import NoApiKeyModal from '../../../components/shared/NoApiKeyModal';
 import type { Draft, TimingRecommendation } from '@synapse/types';
 
 function ComposeContent() {
@@ -21,6 +22,7 @@ function ComposeContent() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [limitReached, setLimitReached] = useState(false);
+  const [noApiKey, setNoApiKey] = useState(false);
 
   // Image panel
   const [showImagePanel, setShowImagePanel] = useState(false);
@@ -52,7 +54,9 @@ function ComposeContent() {
       setDraft(result);
       posthog?.capture('post_generated', { contentType, hasTrend: !!trendId });
     } catch (e: unknown) {
-      if (e instanceof ApiError && e.status === 429) {
+      if (e instanceof ApiError && e.code === 'NO_API_KEY') {
+        setNoApiKey(true);
+      } else if (e instanceof ApiError && e.status === 429) {
         setLimitReached(true);
       } else if (e instanceof ApiError && e.status >= 500) {
         setError('Something went wrong on our end. Please try again.');
@@ -120,6 +124,8 @@ function ComposeContent() {
 
   return (
     <div className="p-6 md:p-10 max-w-4xl mx-auto space-y-6">
+      {noApiKey && <NoApiKeyModal onClose={() => setNoApiKey(false)} />}
+
       <div>
         <p className="text-slate-500 text-xs font-medium uppercase tracking-widest mb-1">AI Generation</p>
         <h1 className="text-2xl font-semibold text-white tracking-tight">Compose</h1>

@@ -93,6 +93,17 @@ export class AiService {
           categorizationModel: p.aiModel ?? this.globalClaudeModel,
         };
       }
+      // User has no personal key — check if admin has granted platform key access
+      const userRecord = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { usePlatformKey: true } as object,
+      });
+      if (!(userRecord as unknown as { usePlatformKey?: boolean })?.usePlatformKey) {
+        throw new HttpException(
+          { statusCode: 403, error: 'NO_API_KEY', message: 'Add your API key in Settings → AI Provider to use this feature.' },
+          403,
+        );
+      }
     }
 
     // Fall back to global platform config — select model names based on provider

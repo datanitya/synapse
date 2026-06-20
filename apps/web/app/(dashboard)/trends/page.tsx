@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePostHog } from 'posthog-js/react';
-import { api } from '../../../lib/api-client';
+import { api, ApiError } from '../../../lib/api-client';
+import NoApiKeyModal from '../../../components/shared/NoApiKeyModal';
 import type { TrendListResponse, TrendIntelligence } from '@synapse/types';
 
 function ScorePill({ label, value, type }: { label: string; value: number; type: 'trend' | 'saturation' | 'opportunity' }) {
@@ -43,6 +44,7 @@ export default function TrendsPage() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [noApiKey, setNoApiKey] = useState(false);
 
   useEffect(() => { load(); }, []);
 
@@ -64,6 +66,8 @@ export default function TrendsPage() {
     try {
       await api.post('/trends/sync');
       await load();
+    } catch (e) {
+      if (e instanceof ApiError && e.code === 'NO_API_KEY') setNoApiKey(true);
     } finally {
       setSyncing(false);
     }
@@ -91,6 +95,7 @@ export default function TrendsPage() {
 
   return (
     <div className="p-4 md:p-8 max-w-4xl mx-auto space-y-6">
+      {noApiKey && <NoApiKeyModal onClose={() => setNoApiKey(false)} />}
       {/* Header */}
       <div className="flex flex-wrap items-end gap-4 justify-between">
         <div>
