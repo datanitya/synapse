@@ -28,6 +28,15 @@ export class AdminController {
     return this.adminService.getUserDetail(id);
   }
 
+  @Post('users/:id/platform-access')
+  setPlatformAccess(
+    @CurrentUser() actor: Actor,
+    @Param('id') id: string,
+    @Body() body: { allow: boolean },
+  ) {
+    return this.adminService.setPlatformAccess(actor, id, body.allow);
+  }
+
   @Post('users/:id/plan')
   assignPlan(
     @CurrentUser() actor: Actor,

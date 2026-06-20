@@ -1,7 +1,11 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
 export class ApiError extends Error {
-  constructor(public readonly status: number, message: string) {
+  constructor(
+    public readonly status: number,
+    message: string,
+    public readonly code?: string,   // e.g. 'NO_API_KEY'
+  ) {
     super(message);
     this.name = 'ApiError';
   }
@@ -31,8 +35,8 @@ async function request<T>(
   }
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: 'Request failed' }));
-    throw new ApiError(response.status, (error as { message?: string }).message ?? 'Request failed');
+    const error = await response.json().catch(() => ({ message: 'Request failed' })) as { message?: string; error?: string };
+    throw new ApiError(response.status, error.message ?? 'Request failed', error.error);
   }
 
   return response.json() as Promise<T>;

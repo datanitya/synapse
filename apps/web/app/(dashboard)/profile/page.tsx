@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { api } from '../../../lib/api-client';
+import { api, ApiError } from '../../../lib/api-client';
+import NoApiKeyModal from '../../../components/shared/NoApiKeyModal';
 import type { UserWithPreferences } from '@synapse/types';
 
 interface BrandDna {
@@ -31,6 +32,7 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeMsg, setAnalyzeMsg] = useState('');
+  const [noApiKey, setNoApiKey] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -53,8 +55,12 @@ export default function ProfilePage() {
       } else {
         setAnalyzeMsg(result.reason ?? 'Not enough edits yet. Edit a few generated posts first.');
       }
-    } catch {
-      setAnalyzeMsg('Analysis failed. Try again later.');
+    } catch (e: unknown) {
+      if (e instanceof ApiError && e.code === 'NO_API_KEY') {
+        setNoApiKey(true);
+      } else {
+        setAnalyzeMsg('Analysis failed. Try again later.');
+      }
     } finally {
       setAnalyzing(false);
     }
@@ -76,6 +82,7 @@ export default function ProfilePage() {
 
   return (
     <div className="p-6 md:p-10 max-w-2xl mx-auto space-y-6">
+      {noApiKey && <NoApiKeyModal onClose={() => setNoApiKey(false)} />}
       <div>
         <p className="text-slate-500 text-xs font-medium uppercase tracking-widest mb-1">Account</p>
         <h1 className="text-2xl font-semibold text-white tracking-tight">Profile</h1>

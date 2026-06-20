@@ -54,6 +54,7 @@ export class OrganizationsService {
         members: {
           include: { user: { select: { id: true, name: true, email: true, profilePictureUrl: true } } },
         },
+        invites: { where: { expiresAt: { gt: new Date() } } },
       },
     });
   }
